@@ -40,4 +40,6 @@ Thumbs.db
 .runtime/
 .claude/
 .logs/
+.beads/
+.copilot/
 state.json
