@@ -11,10 +11,14 @@ class Settings(BaseSettings):
     app_name: str = "list_master"
     debug: bool = False
 
-    database_url: str = "postgresql+asyncpg://localhost:5432/list_master"
+    database_url: str = "postgresql+asyncpg://listmaster:listmaster@db:5432/listmaster"
 
     host: str = "0.0.0.0"
     port: int = 8000
+
+    whatsapp_verify_token: str = ""
+    whatsapp_api_token: str = ""
+    openai_api_key: str = ""
 
 
 settings = Settings()

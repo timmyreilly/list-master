@@ -1,24 +1,10 @@
-from contextlib import asynccontextmanager
+"""FastAPI application entrypoint."""
 
 from fastapi import FastAPI
 
-from app.config import settings
-from app.database import engine
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    yield
-    await engine.dispose()
-
-
-app = FastAPI(
-    title=settings.app_name,
-    debug=settings.debug,
-    lifespan=lifespan,
-)
+app = FastAPI(title="List Master", version="0.1.0")
 
 
 @app.get("/health")
-async def health():
+async def health() -> dict:
     return {"status": "ok"}
