@@ -42,3 +42,64 @@ pip install -r requirements.txt
 # ensure Postgres is running and DATABASE_URL is set in .env
 uvicorn app.main:app --reload --port 8000
 ```
+
+## Azure Deployment
+
+The app deploys to **Azure Container Apps** with Bicep templates in `infra/`.
+
+### Resources Provisioned
+
+| Resource | Purpose |
+|----------|---------|
+| Log Analytics Workspace | Container Apps logging |
+| Azure Container Registry | Docker image storage |
+| PostgreSQL Flexible Server | Application database |
+| Container Apps Environment | Serverless container hosting |
+| Container App | The List Master service |
+
+### Prerequisites
+
+- [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
+- An Azure subscription
+
+### Deploy
+
+```bash
+# Login and set subscription
+az login
+az account set --subscription <subscription-id>
+
+# Create a resource group
+az group create --name rg-listmaster-dev --location eastus
+
+# Deploy infrastructure
+az deployment group create \
+  --resource-group rg-listmaster-dev \
+  --template-file infra/main.bicep \
+  --parameters infra/main.bicepparam
+
+# Build and push the container image
+az acr login --name <acr-name>
+docker build -t <acr-login-server>/listmaster:latest .
+docker push <acr-login-server>/listmaster:latest
+```
+
+### Environment Configuration
+
+Secrets are passed via `main.bicepparam` which reads from environment variables:
+
+| Env Var | Description |
+|---------|-------------|
+| `PG_ADMIN_PASSWORD` | PostgreSQL admin password (required) |
+| `IMAGE_TAG` | Container image tag (default: `latest`) |
+| `WHATSAPP_VERIFY_TOKEN` | WhatsApp webhook verification token |
+| `WHATSAPP_API_TOKEN` | WhatsApp Cloud API token |
+| `OPENAI_API_KEY` | OpenAI API key for LLM parsing |
+
+### Environments
+
+Use `environmentType` parameter to switch between `dev`, `staging`, and `prod`.
+Each environment automatically adjusts:
+- **dev**: Burstable Postgres (B1ms), Basic ACR, scale-to-zero
+- **staging**: Same as dev (override SKUs as needed)
+- **prod**: GeneralPurpose Postgres (D2ds_v4), Standard ACR
