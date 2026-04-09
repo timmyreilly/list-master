@@ -1,5 +1,5 @@
 environment = "staging"
-location    = "westus2"
+location    = "westus"
 
 # Database — small tier for staging
 db_sku        = "B_Standard_B1ms"

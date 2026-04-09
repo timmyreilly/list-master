@@ -8,14 +8,16 @@ terraform {
     }
   }
 
-  backend "azurerm" {
-    # Configured via -backend-config in CI
-  }
+  # Backend configured via -backend-config in CI; local runs use -backend-config=false override
 }
 
 provider "azurerm" {
-  features {}
-  use_oidc = true
+  features {
+    resource_group {
+      prevent_deletion_if_contains_resources = false
+    }
+  }
+  # use_oidc = true  # Enable in CI; local runs use az cli auth
 }
 
 # ── Resource Group ──────────────────────────────────────────────────────
