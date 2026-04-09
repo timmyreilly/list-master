@@ -1,0 +1,10 @@
+{% if unchecked_items or checked_items %}
+    {% for item in unchecked_items %}
+        {% include "partials/item_row.html" %}
+    {% endfor %}
+    {% for item in checked_items %}
+        {% include "partials/item_row.html" %}
+    {% endfor %}
+{% else %}
+    <p>No items on the list yet.</p>
+{% endif %}

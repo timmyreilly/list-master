@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}List Master{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <style>
+        .item-checked { opacity: 0.5; text-decoration: line-through; }
+        .item-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0; border-bottom: 1px solid var(--pico-muted-border-color); }
+        .item-row label { margin-bottom: 0; flex: 1; cursor: pointer; }
+        .item-meta { font-size: 0.8rem; color: var(--pico-muted-color); white-space: nowrap; }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <h1>🛒 List Master</h1>
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

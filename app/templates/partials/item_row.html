@@ -1,0 +1,11 @@
+<div class="item-row {{ 'item-checked' if item.status.value == 'purchased' }}" id="item-{{ item.id }}">
+    <input
+        type="checkbox"
+        {{ 'checked' if item.status.value == 'purchased' }}
+        hx-patch="/items/{{ item.id }}/toggle"
+        hx-target="#item-{{ item.id }}"
+        hx-swap="outerHTML"
+    >
+    <label>{{ item.display_text }}</label>
+    <span class="item-meta">{{ item.contributor.display_name }} · {{ item.created_at.strftime('%b %d, %H:%M') }}</span>
+</div>
