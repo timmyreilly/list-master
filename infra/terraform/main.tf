@@ -21,8 +21,6 @@ provider "azurerm" {
       prevent_deletion_if_contains_resources = false
     }
   }
-  # use_oidc = true  # Enable in CI; local runs use az cli auth
-  features {}
   use_oidc = true
 
   resource_provider_registrations = "extended"
