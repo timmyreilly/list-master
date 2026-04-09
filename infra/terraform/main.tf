@@ -2,6 +2,10 @@ terraform {
   required_version = ">= 1.9"
 
   required_providers {
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
     azurerm = {
       source  = "hashicorp/azurerm"
       version = "~> 4.0"
@@ -18,6 +22,17 @@ provider "azurerm" {
     }
   }
   # use_oidc = true  # Enable in CI; local runs use az cli auth
+  features {}
+  use_oidc = true
+
+  resource_provider_registrations = "extended"
+}
+
+# Random suffix for globally unique names (ACR, Postgres)
+resource "random_string" "suffix" {
+  length  = 4
+  special = false
+  upper   = false
 }
 
 # ── Resource Group ──────────────────────────────────────────────────────
@@ -32,7 +47,7 @@ resource "azurerm_resource_group" "main" {
 # ── Container Registry ──────────────────────────────────────────────────
 
 resource "azurerm_container_registry" "main" {
-  name                = "crlistmaster${var.environment}"
+  name                = "crlistmaster${var.environment}${random_string.suffix.result}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = var.acr_sku
@@ -67,7 +82,7 @@ resource "azurerm_container_app_environment" "main" {
 # ── PostgreSQL Flexible Server ──────────────────────────────────────────
 
 resource "azurerm_postgresql_flexible_server" "main" {
-  name                          = "psql-listmaster-${var.environment}"
+  name                          = "psql-listmaster-${var.environment}-${random_string.suffix.result}"
   resource_group_name           = azurerm_resource_group.main.name
   location                      = azurerm_resource_group.main.location
   version                       = "16"
