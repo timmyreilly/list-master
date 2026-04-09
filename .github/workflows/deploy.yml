@@ -23,6 +23,9 @@ concurrency:
 
 env:
   ARM_USE_OIDC: "true"
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   TF_INPUT: "false"
 
 jobs:
@@ -61,11 +64,12 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "~> 1.9"
+          terraform_wrapper: false
 
       - name: Terraform init
         working-directory: infra/terraform
         run: |
-          terraform init \
+          terraform init -no-color \
             -backend-config="resource_group_name=${{ secrets.TF_STATE_RESOURCE_GROUP }}" \
             -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=tfstate" \
@@ -73,15 +77,17 @@ jobs:
 
       - name: Terraform plan
         working-directory: infra/terraform
+        env:
+          TF_LOG: ERROR
         run: |
-          terraform plan \
+          terraform plan -no-color \
             -var-file="environments/${{ needs.resolve-env.outputs.environment }}.tfvars" \
             -var="image_tag=${{ github.sha }}" \
             -out=tfplan
 
       - name: Terraform apply
         working-directory: infra/terraform
-        run: terraform apply -auto-approve tfplan
+        run: terraform apply -no-color -auto-approve tfplan
 
       - name: Export Terraform outputs
         id: tf-output
@@ -107,7 +113,9 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: ACR login
-        run: az acr login --name "${{ needs.terraform.outputs.acr_login_server }}"
+        run: |
+          ACR_NAME="$(echo "${{ needs.terraform.outputs.acr_login_server }}" | cut -d. -f1)"
+          az acr login --name "$ACR_NAME"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
