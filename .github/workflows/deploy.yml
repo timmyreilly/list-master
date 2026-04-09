@@ -79,9 +79,11 @@ jobs:
         working-directory: infra/terraform
         env:
           TF_LOG: ERROR
+          TF_VAR_db_admin_password: ${{ secrets.DB_ADMIN_PASSWORD }}
         run: |
           terraform plan -no-color \
             -var-file="environments/${{ needs.resolve-env.outputs.environment }}.tfvars" \
+            -var="environment=${{ needs.resolve-env.outputs.environment }}" \
             -var="image_tag=${{ github.sha }}" \
             -out=tfplan
 
