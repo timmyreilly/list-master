@@ -1,0 +1,29 @@
+---
+- name: Get Container App FQDN
+  ansible.builtin.command:
+    cmd: >-
+      az containerapp show
+      --name {{ container_app_name }}
+      --resource-group {{ resource_group }}
+      --query "properties.configuration.ingress.fqdn"
+      -o tsv
+  register: app_fqdn
+  changed_when: false
+
+- name: Health check — wait for app to respond
+  ansible.builtin.uri:
+    url: "https://{{ app_fqdn.stdout }}/health"
+    method: GET
+    status_code: 200
+    return_content: true
+  register: health_result
+  until: health_result.status == 200
+  retries: 10
+  delay: 15
+
+- name: Verify health response
+  ansible.builtin.assert:
+    that:
+      - health_result.json.status == "ok"
+    fail_msg: "Health check returned unexpected response: {{ health_result.content }}"
+    success_msg: "✅ App is healthy at https://{{ app_fqdn.stdout }}"
