@@ -1,0 +1,24 @@
+---
+- name: Update Container App image
+  ansible.builtin.command:
+    cmd: >-
+      az containerapp update
+      --name {{ container_app_name }}
+      --resource-group {{ resource_group }}
+      --image {{ acr_login_server }}/list-master:{{ image_tag }}
+  register: deploy_result
+  changed_when: deploy_result.rc == 0
+
+- name: Wait for new revision to become active
+  ansible.builtin.command:
+    cmd: >-
+      az containerapp revision list
+      --name {{ container_app_name }}
+      --resource-group {{ resource_group }}
+      --query "[?properties.active].{name:name, status:properties.runningState}"
+      -o tsv
+  register: revision_status
+  until: "'Running' in revision_status.stdout"
+  retries: 12
+  delay: 10
+  changed_when: false

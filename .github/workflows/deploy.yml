@@ -1,0 +1,224 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - staging
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+env:
+  ARM_USE_OIDC: "true"
+  TF_INPUT: "false"
+
+jobs:
+  resolve-env:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+    steps:
+      - id: env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "environment=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+  terraform:
+    runs-on: ubuntu-latest
+    needs: resolve-env
+    environment: ${{ needs.resolve-env.outputs.environment }}
+    outputs:
+      acr_login_server: ${{ steps.tf-output.outputs.acr_login_server }}
+      container_app_name: ${{ steps.tf-output.outputs.container_app_name }}
+      resource_group: ${{ steps.tf-output.outputs.resource_group }}
+      db_host: ${{ steps.tf-output.outputs.db_host }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure OIDC login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.9"
+
+      - name: Terraform init
+        working-directory: infra/terraform
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.TF_STATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=list-master-${{ needs.resolve-env.outputs.environment }}.tfstate"
+
+      - name: Terraform plan
+        working-directory: infra/terraform
+        run: |
+          terraform plan \
+            -var-file="environments/${{ needs.resolve-env.outputs.environment }}.tfvars" \
+            -var="image_tag=${{ github.sha }}" \
+            -out=tfplan
+
+      - name: Terraform apply
+        working-directory: infra/terraform
+        run: terraform apply -auto-approve tfplan
+
+      - name: Export Terraform outputs
+        id: tf-output
+        working-directory: infra/terraform
+        run: |
+          echo "acr_login_server=$(terraform output -raw acr_login_server)" >> "$GITHUB_OUTPUT"
+          echo "container_app_name=$(terraform output -raw container_app_name)" >> "$GITHUB_OUTPUT"
+          echo "resource_group=$(terraform output -raw resource_group)" >> "$GITHUB_OUTPUT"
+          echo "db_host=$(terraform output -raw db_host)" >> "$GITHUB_OUTPUT"
+
+  push-image:
+    runs-on: ubuntu-latest
+    needs: [resolve-env, terraform]
+    environment: ${{ needs.resolve-env.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure OIDC login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        run: az acr login --name "${{ needs.terraform.outputs.acr_login_server }}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ needs.terraform.outputs.acr_login_server }}/list-master:${{ github.sha }}
+            ${{ needs.terraform.outputs.acr_login_server }}/list-master:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  provision:
+    runs-on: ubuntu-latest
+    needs: [resolve-env, terraform, push-image]
+    environment: ${{ needs.resolve-env.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure OIDC login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ansible
+        run: pip install ansible-core
+
+      - name: Run Ansible provisioning
+        working-directory: infra/ansible
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "False"
+          ENVIRONMENT: ${{ needs.resolve-env.outputs.environment }}
+          ACR_LOGIN_SERVER: ${{ needs.terraform.outputs.acr_login_server }}
+          CONTAINER_APP_NAME: ${{ needs.terraform.outputs.container_app_name }}
+          RESOURCE_GROUP: ${{ needs.terraform.outputs.resource_group }}
+          DB_HOST: ${{ needs.terraform.outputs.db_host }}
+          IMAGE_TAG: ${{ github.sha }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          ansible-playbook playbook.yml \
+            -i inventory/${{ needs.resolve-env.outputs.environment }}.yml \
+            -e "environment_name=${ENVIRONMENT}" \
+            -e "acr_login_server=${ACR_LOGIN_SERVER}" \
+            -e "container_app_name=${CONTAINER_APP_NAME}" \
+            -e "resource_group=${RESOURCE_GROUP}" \
+            -e "db_host=${DB_HOST}" \
+            -e "image_tag=${IMAGE_TAG}" \
+            -e "database_url=${DATABASE_URL}"
+
+  smoke-test:
+    runs-on: ubuntu-latest
+    needs: [resolve-env, terraform, provision]
+    environment: ${{ needs.resolve-env.outputs.environment }}
+    steps:
+      - name: Azure OIDC login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get app URL
+        id: url
+        run: |
+          FQDN=$(az containerapp show \
+            --name "${{ needs.terraform.outputs.container_app_name }}" \
+            --resource-group "${{ needs.terraform.outputs.resource_group }}" \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          echo "app_url=https://${FQDN}" >> "$GITHUB_OUTPUT"
+
+      - name: Health check with retries
+        run: |
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ steps.url.outputs.app_url }}/health" || true)
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Health check passed (attempt $i)"
+              exit 0
+            fi
+            echo "⏳ Attempt $i: status=$STATUS, retrying in 15s..."
+            sleep 15
+          done
+          echo "❌ Health check failed after 5 attempts"
+          exit 1
+
+  promote-to-prod:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.smoke-test.result == 'success'
+    runs-on: ubuntu-latest
+    needs: [smoke-test]
+    environment: prod
+    steps:
+      - name: Trigger prod deployment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy.yml',
+              ref: 'main',
+              inputs: { environment: 'prod' },
+            });
+            console.log('🚀 Production deployment triggered');
