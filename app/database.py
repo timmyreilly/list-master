@@ -11,7 +11,7 @@ engine = create_async_engine(
     pool_pre_ping=True,
 )
 
-async_session = async_sessionmaker(
+async_session_factory = async_sessionmaker(
     engine,
     class_=AsyncSession,
     expire_on_commit=False,
@@ -24,5 +24,5 @@ class Base(DeclarativeBase):
 
 async def get_session() -> AsyncSession:  # type: ignore[misc]
     """FastAPI dependency that yields an async session."""
-    async with async_session() as session:
+    async with async_session_factory() as session:
         yield session
